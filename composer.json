@@ -1,0 +1,22 @@
+{
+	"name": "iqnection/silverstripe-wordpress-integration",
+	"description": "Provides an integration to use a WordPress blog with your SilverStripe Site",
+	"type": "silverstripe-page",
+	"keywords": ["iqnection"],
+	"license": "BSD-3-Clause",
+	"authors": [
+        {
+            "name": "IQnection",
+            "homepage": "https://www.iqnection.com"
+        }
+    ],
+	"require": {
+		"php": ">=7.0.0",
+		"silverstripe/recipe-cms": "^4.0"
+	},
+	"autoload": {
+		"psr-4": {
+			"IQnection\\WordPress\\": "app/src/"
+		}
+	}
+}

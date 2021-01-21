@@ -10,14 +10,20 @@ use SilverStripe\ORM\FieldType;
 use SilverStripe\View\ArrayData;
 use SilverStripe\ORM\ArrayList;
 use SilverStripe\Control\Controller;
+use Psr\SimpleCache\CacheInterface;
+use SilverStripe\Core\Injector\Injector;
+use SilverStripe\View\Parsers\URLSegmentFilter;
+use SilverStripe\SiteConfig\SiteConfig;
+use SilverStripe\Assets\File;
+use SilverStripe\Core\Flushable;
 
-class WordPressRedirectPage extends \Page
+class WordPressRedirectPage extends \Page implements Flushable
 {
 	private static $table_name = 'WordPressRedirectPage';
 
-	private static $icon = "iqnection-pages/basepages:images/icons/icon-blog-file.gif";
+	private static $icon = "iqnection/silverstripe-wordpress-integration:client/images/icon-blog-file.gif";
 
-	private static $feed_cache_lifetime = '-1 hour';
+	private static $feed_cache_lifetime = 3600;
 
 	private static $db = array(
 		"WordPressURL" => "Varchar(255)"
@@ -34,70 +40,102 @@ class WordPressRedirectPage extends \Page
 	public function getCMSFields()
 	{
 		$fields = parent::getCMSFields();
-		$fields->removeFieldFromTab("Root", "Content");
-		$fields->removeByName('Metadata');
-		$fields->removeByName('Developer');
+		$fields->removeByName([
+            "Content",
+		    'Metadata',
+            'ElementalArea',
+		    'Developer'
+        ]);
 		$fields->addFieldToTab("Root.Main", Forms\TextField::create("WordPressURL", "WordPress Segment (eg. 'blog', 'news', etc.)"));
 
-		if ($this->WordPressURL)
+		if ($wpUrl = $this->WordPressAdminURL())
 		{
-			$fields->addFieldToTab("Root.Main", Forms\LiteralField::create("Desc1", '<div id="wp-login"><h1><img src="resources/vendor/iqnection-pages/basepages/images/wordpress-logo.png" alt="WordPress" /></h1>
-			<a href="'.Director::AbsoluteBaseURL().$this->WordPressURL.'/wp-login.php" target="_blank"><img src="resources/vendor/iqnection-pages/basepages/images/wordpress-login.png" alt="Login" /></a></div>'));
+			$fields->addFieldToTab("Root.Main", Forms\LiteralField::create("Desc1", '<div id="wp-login"><h1><img src="'.\SilverStripe\Core\Manifest\ModuleResourceLoader::singleton()->resolveURL('iqnection/silverstripe-wordpress-integration:client/images/wordpress-logo.png').'" alt="WordPress" /></h1>
+			<a href="'.$wpUrl.'" target="_blank"><img src="'.\SilverStripe\Core\Manifest\ModuleResourceLoader::singleton()->resolveURL('iqnection/silverstripe-wordpress-integration:client/images/wordpress-login.png').'" alt="Login" /></a></div>'));
 		}
 		return $fields;
 	}
 
+    public function WordPressAbsoluteURL()
+    {
+        if (preg_match('/^http/',$this->WordPressURL))
+        {
+            return $this->WordPressURL;
+        }
+        return Director::AbsoluteURL($this->WordPressURL);
+    }
+
+    public function WordPressRelativePath()
+    {
+        return Director::makeRelative($this->WordPressAbsoluteURL());
+    }
+
+    public function WordPressAdminURL()
+    {
+        return Controller::join_links($this->WordPressAbsoluteURL(), 'wp-login.php');
+    }
+
 	public function validate()
 	{
 		$result = parent::validate();
-		if ( ($this->ParentID == 0) && ($this->URLSegment) && ($this->URLSegment == $this->WordPressURL) )
-		{
-			$result->addError('The URL Segment for this page may cause an infinite loop if the SilverStripe path is the same as the WordPress directory. I suggest [site-title-blog] format.');
-		}
+        if (Director::is_site_url($this->WordPressURL))
+        {
+            $this->WordPressURL = Director::makeRelative($this->WordPressURL);
+		    if ( ($this->ParentID == 0) && ($this->URLSegment) && ($this->URLSegment == $this->WordPressURL) )
+		    {
+                $suggest = URLSegmentFilter::singleton()->filter(SiteConfig::current_site_config()->Title.' '.$this->Title);
+			    $result->addError('The URL Segment for this page may cause an infinite loop if the SilverStripe path is the same as the WordPress directory. I suggest ['.$suggest.'] format.');
+		    }
+        }
 		return $result;
 	}
 
 	public function updateRefreshCacheVars(&$vars)
 	{
-		$vars[] = 'WordPressURL';
+        $vars[] = 'WordPressURL';
+        $vars[] = 'WordPressFullURL';
 		return $vars;
 	}
 
 	public function onAfterWrite()
 	{
 		parent::onAfterWrite();
-		if (!$this->WordPressURL) { return; }
+		if ( (!$this->WordPressURL) || (!Director::is_site_url($this->WordPressURL)) )
+        {
+            return;
+        }
 		$path = Director::baseFolder()."/.htaccess";
 		$curr_data = @file($path);
-
-		$extra = $this->WordPressURL ? "RewriteCond %{REQUEST_URI} !^/".$this->WordPressURL."$" : "";
-		$extra2 = $this->WordPressURL ? "RewriteCond %{REQUEST_URI} !^/".$this->WordPressURL."/" : "";
 
 		$new_file = array();
 
 		// first remove any blog redirect already in the file
-		$remove_keys = array();
-		foreach($curr_data as $key => $line)
+		$inside = false;
+		foreach($curr_data as &$line)
 		{
-			if (trim($line) == "### Blog Redirect ###")
+			if (trim($line) == "### Begin WordPress Redirect ###")
 			{
-				$remove_keys[] = $key;
-				$remove_keys[] = $key + 1;
-				$remove_keys[] = $key + 2;
+                $inside = true;
 			}
-
+            if ($inside)
+            {
+                $line = false;
+            }
+            if (trim($line) == "### End WordPress Redirect ###")
+            {
+                $inside = false;
+            }
 		}
-		foreach($remove_keys as $key) { unset($curr_data[$key]); }
-
-		$ss_line = 0;
+        $curr_data = array_filter($curr_data);
 		$finished = false;
 		foreach ($curr_data as $line)
 		{
 			if ( (!$finished) && (trim($line) == "RewriteRule ^(.*)$ public/$1") )
 			{
-				$new_file[] = trim("### Blog Redirect ###");
-				$new_file[] = trim($extra);
-				$new_file[] = trim($extra2);
+                $new_file[] = "### Begin WordPress Redirect ###";
+				$new_file[] = "RewriteCond %{REQUEST_URI} !^/".$this->WordPressURL."$";
+				$new_file[] = "RewriteCond %{REQUEST_URI} !^/".$this->WordPressURL."/";
+				$new_file[] = "### End WordPress Redirect ###";
 				$finished = true;
 			}
 			$new_file[] = trim($line);
@@ -111,7 +149,7 @@ class WordPressRedirectPage extends \Page
 	public function getXmlFeed()
 	{
 		$body = false;
-		if ($BlogURL = $this->WordPressURL)
+		if ($BlogURL = $this->WordPressAbsoluteURL())
 		{
 			$BlogLink = Director::AbsoluteURL(Controller::join_links($BlogURL,'feed'));
 			$client = new \GuzzleHttp\Client();
@@ -126,46 +164,85 @@ class WordPressRedirectPage extends \Page
 		return $body;
 	}
 
-	public function cacheXmlFilePath()
+	public function WPCacheInterface()
 	{
-		$cachePath = Director::baseFolder().'/blog-feed-'.$this->ID.'.xml';
-		$this->extend('updateCacheXmlFilePath',$cachePath);
-		return $cachePath;
+        return Injector::inst()->get(CacheInterface::class . '.wpCache');
 	}
 
-	public function clearXmlCache()
+	public function clearWPCachedXmlFeed()
 	{
-		if (file_exists($this->cacheXmlFilePath()))
-		{
-			unlink($this->cacheXmlFilePath());
-		}
-		return $this;
+        $this->WPCacheInterface()->clear();
+        return $this;
 	}
 
-	protected function cachedXmlFeed()
+	protected function setWPCachedXmlFeed($feed)
 	{
-		if ($BlogURL = $this->WordPressURL)
-		{
-			$cachePath = $this->cacheXmlFilePath();;
-			if ( (!file_exists($cachePath)) || (filemtime($cachePath) < strtotime($this->Config()->get('feed_cache_lifetime'))) )
-			{
-				$feed = $this->getXmlFeed();
-				file_put_contents($cachePath,$feed);
-				return $feed;
-			}
-		}
-		$feed = (file_exists($cachePath)) ? file_get_contents($cachePath) : false;
-		$this->extend('updateCachedXmlFeed',$feed);
-		return $feed;
+        $this->WPCacheInterface()->set('wpFeed', $feed, $this->Config()->get('feed_cache_lifetime'));
 	}
 
-	protected $_BlogFeed;
-	public function getBlogFeed()
+    protected function getWPCachedXmlFeed()
+    {
+        $this->WPCacheInterface()->get('wpFeed');
+    }
+
+    public function clearTemplateCache()
+    {
+        if ( ($filePath = $this->templateCacheFilePath()) && (file_exists($filePath)) )
+        {
+            unlink($filePath);
+        }
+        return $this;
+    }
+
+    public static function flush()
+    {
+        parent::flush();
+        foreach(WordPressRedirectPage::get() as $page)
+        {
+            $page->clearTemplateCache();
+        }
+    }
+
+    public function onAfterBuild()
+    {
+        parent::onAfterBuild();
+        $this->clearTemplateCache();
+    }
+
+    public function templateCacheDirPath()
+    {
+        $cacheDirPath = File::join_paths(Director::baseFolder(),'template-cache');
+        // make sure the cache directory exists
+        if (!file_exists($cacheDirPath))
+        {
+            mkdir($cacheDirPath,0755);
+            file_put_contents(File::join_paths($cacheDirPath, '.htaccess'),"Order deny,allow\nDeny from all\nAllow from 127.0.0.1");
+        }
+        return $cacheDirPath;
+    }
+
+    public function templateCacheFilePath()
+    {
+        $fileName = trim( preg_replace('/[^a-zA-Z0-9\-_]+/', '-', $this->WordPressRelativePath()), ' -_').'.json';
+        return File::join_paths($this->templateCacheDirPath(), $fileName);
+    }
+
+	protected $_WPFeed;
+	public function getWPFeed()
 	{
-		if (is_null($this->_BlogFeed))
+		if (is_null($this->_WPFeed))
 		{
+            $this->_WPFeed = false;
 			$BlogFeed = ArrayList::create();
-			$feed = $this->cachedXmlFeed();
+			$feed = $this->getWPCachedXmlFeed();
+            if (!trim($feed))
+            {
+                if (!$feed = $this->getXmlFeed())
+                {
+                    return;
+                }
+                $this->setWPCachedXmlFeed($feed);
+            }
 			$xml = new \SimpleXMLElement($feed);
 			$ns = $xml->getDocNamespaces();
 			// parse each item
@@ -183,9 +260,9 @@ class WordPressRedirectPage extends \Page
 				$BlogFeed->push($obj);
 			}
 			$this->extend('updateBlogFeed',$BlogFeed);
-			$this->_BlogFeed = $BlogFeed;
+			$this->_WPFeed = $BlogFeed;
 		}
-		return $this->_BlogFeed;
+		return $this->_WPFeed;
 	}
 }
 

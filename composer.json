@@ -18,5 +18,10 @@
 		"psr-4": {
 			"IQnection\\WordPress\\": "app/src/"
 		}
-	}
+	},
+    "extra": {
+        "expose": [
+            "client"
+        ]
+    }
 }

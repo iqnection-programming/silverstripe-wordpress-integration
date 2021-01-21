@@ -1,0 +1,10 @@
+---
+Name: iqwordpressintegration
+---
+SilverStripe\Core\Injector\Injector:
+  Psr\SimpleCache\CacheInterface.wpCache:
+    factory: SilverStripe\Core\Cache\CacheFactory
+    constructor:
+      namespace: "wpCache"
+
+

@@ -15,9 +15,8 @@ use SilverStripe\Core\Injector\Injector;
 use SilverStripe\View\Parsers\URLSegmentFilter;
 use SilverStripe\SiteConfig\SiteConfig;
 use SilverStripe\Assets\File;
-use SilverStripe\Core\Flushable;
 
-class WordPressRedirectPage extends \Page implements Flushable
+class WordPressRedirectPage extends \Page
 {
 	private static $table_name = 'WordPressRedirectPage';
 
@@ -97,50 +96,80 @@ class WordPressRedirectPage extends \Page implements Flushable
 		return $vars;
 	}
 
-	public function onAfterWrite()
+    public function onAfterUnpublish()
+    {
+        $path = Director::baseFolder()."/.htaccess";
+        $curr_data = @file($path);
+        $inside = false;
+        foreach($curr_data as &$line)
+        {
+            $line = trim($line);
+            if (preg_match('/\['.$this->ID.'\] Begin WordPress Redirect/', $line))
+            {
+                $inside = true;
+            }
+            if ( ($inside) && (preg_match('/^(\s|\t)?RewriteRule/',$line)) )
+            {
+                $inside = false;
+            }
+            if ($inside)
+            {
+                $line = false;
+            }
+            if (preg_match('/\['.$this->ID.'\] End WordPress Redirect/', $line))
+            {
+                $inside = false;
+            }
+        }
+        $curr_data = array_filter($curr_data);
+        $h = @fopen($path, "w");
+        fwrite($h, implode("\n", $curr_data));
+        @fclose($h);
+    }
+
+	public function onAfterPublish()
 	{
-		parent::onAfterWrite();
 		if ( (!$this->WordPressURL) || (!Director::is_site_url($this->WordPressURL)) )
         {
             return;
         }
 		$path = Director::baseFolder()."/.htaccess";
 		$curr_data = @file($path);
-
-		$new_file = array();
-
 		// first remove any blog redirect already in the file
 		$inside = false;
 		foreach($curr_data as &$line)
 		{
-			if (trim($line) == "### Begin WordPress Redirect ###")
+            $line = trim($line);
+			if (preg_match('/\['.$this->ID.'\] Begin WordPress Redirect/', $line))
 			{
                 $inside = true;
 			}
             if ($inside)
             {
                 $line = false;
+                $line = '-';
             }
-            if (trim($line) == "### End WordPress Redirect ###")
+            if (preg_match('/\['.$this->ID.'\] End WordPress Redirect/', $line))
             {
                 $inside = false;
             }
 		}
         $curr_data = array_filter($curr_data);
 		$finished = false;
-		foreach ($curr_data as $line)
+        $new_file = [];
+		foreach($curr_data as $index => $cleanline)
 		{
-			if ( (!$finished) && (trim($line) == "RewriteRule ^(.*)$ public/$1") )
+			if ( (!$finished) && (preg_match('/RewriteRule.*?public\/\$1/', trim($cleanline))) )
 			{
-                $new_file[] = "### Begin WordPress Redirect ###";
+                $new_file[] = "### [".$this->ID."] Begin WordPress Redirect  - DO NOT REMOVE ###";
 				$new_file[] = "RewriteCond %{REQUEST_URI} !^/".$this->WordPressURL."$";
 				$new_file[] = "RewriteCond %{REQUEST_URI} !^/".$this->WordPressURL."/";
-				$new_file[] = "### End WordPress Redirect ###";
+				$new_file[] = "### [".$this->ID."] End WordPress Redirect  - DO NOT REMOVE ###";
 				$finished = true;
 			}
-			$new_file[] = trim($line);
+			$new_file[] = $cleanline;
 		}
-
+        $new_file = array_filter($new_file);
 		$h = @fopen($path, "w");
 		fwrite($h, implode("\n", $new_file));
 		@fclose($h);
@@ -192,15 +221,6 @@ class WordPressRedirectPage extends \Page implements Flushable
             unlink($filePath);
         }
         return $this;
-    }
-
-    public static function flush()
-    {
-        parent::flush();
-        foreach(WordPressRedirectPage::get() as $page)
-        {
-            $page->clearTemplateCache();
-        }
     }
 
     public function onAfterBuild()

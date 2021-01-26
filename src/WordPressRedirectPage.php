@@ -147,7 +147,6 @@ class WordPressRedirectPage extends \Page
             if ($inside)
             {
                 $line = false;
-                $line = '-';
             }
             if (preg_match('/\['.$this->ID.'\] End WordPress Redirect/', $line))
             {

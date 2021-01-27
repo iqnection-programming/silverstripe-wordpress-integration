@@ -230,7 +230,7 @@ class WordPressRedirectPage extends \Page
 
     public function templateCacheDirPath()
     {
-        $cacheDirPath = File::join_paths(Director::baseFolder(),'template-cache');
+        $cacheDirPath = Director::getAbsFile('template-cache');
         // make sure the cache directory exists
         if (!file_exists($cacheDirPath))
         {
@@ -243,7 +243,7 @@ class WordPressRedirectPage extends \Page
     public function templateCacheFilePath()
     {
         $fileName = trim( preg_replace('/[^a-zA-Z0-9\-_]+/', '-', $this->WordPressRelativePath()), ' -_').'.json';
-        return File::join_paths($this->templateCacheDirPath(), $fileName);
+        return Director::getAbsFile('template-cache'.DIRECTORY_SEPARATOR.$fileName);
     }
 
 	protected $_WPFeed;

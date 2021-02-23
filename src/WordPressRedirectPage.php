@@ -98,7 +98,7 @@ class WordPressRedirectPage extends \Page
 
     public function onAfterUnpublish()
     {
-        $path = Director::baseFolder()."/.htaccess";
+        $path = Director::getAbsFile(".htaccess");
         $curr_data = @file($path);
         $inside = false;
         foreach($curr_data as &$line)
@@ -133,7 +133,7 @@ class WordPressRedirectPage extends \Page
         {
             return;
         }
-		$path = Director::baseFolder()."/.htaccess";
+		$path = Director::getAbsFile(".htaccess");
 		$curr_data = @file($path);
 		// first remove any blog redirect already in the file
 		$inside = false;
@@ -235,7 +235,7 @@ class WordPressRedirectPage extends \Page
         if (!file_exists($cacheDirPath))
         {
             mkdir($cacheDirPath,0755);
-            file_put_contents(File::join_paths($cacheDirPath, '.htaccess'),"Order deny,allow\nDeny from all\nAllow from 127.0.0.1");
+            file_put_contents(Director::getAbsFile('template-cache'.DIRECTORY_SEPARATOR.'.htaccess'),"Order deny,allow\nDeny from all\nAllow from 127.0.0.1");
         }
         return $cacheDirPath;
     }
@@ -243,7 +243,7 @@ class WordPressRedirectPage extends \Page
     public function templateCacheFilePath()
     {
         $fileName = trim( preg_replace('/[^a-zA-Z0-9\-_]+/', '-', $this->WordPressRelativePath()), ' -_').'.json';
-        return Director::getAbsFile('template-cache'.DIRECTORY_SEPARATOR.$fileName);
+        return $this->templateCacheDirPath().DIRECTORY_SEPARATOR.$fileName;
     }
 
 	protected $_WPFeed;

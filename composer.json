@@ -1,7 +1,7 @@
 {
 	"name": "iqnection/silverstripe-wordpress-integration",
 	"description": "Provides an integration to use a WordPress blog with your SilverStripe Site",
-	"type": "silverstripe-page",
+	"type": "silverstripe-vendormodule",
 	"keywords": ["iqnection"],
 	"license": "BSD-3-Clause",
 	"authors": [
@@ -16,7 +16,7 @@
 	},
 	"autoload": {
 		"psr-4": {
-			"IQnection\\WordPress\\": "app/src/"
+			"IQnection\\WordPress\\": "src/"
 		}
 	},
     "extra": {
